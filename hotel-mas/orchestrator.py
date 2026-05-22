@@ -4,7 +4,6 @@ import uuid
 import logging
 import nats
 from typing import Dict
-from datetime import datetime
 
 # ── Настройка логгера ──────────────────────────────────────
 def setup_logger() -> logging.Logger:
@@ -16,12 +15,10 @@ def setup_logger() -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    # В консоль
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(formatter)
 
-    # В файл
     file_handler = logging.FileHandler("orchestrator.log", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -37,7 +34,6 @@ class HotelOrchestrator:
         self.pending: Dict[str, asyncio.Future] = {}
         self.logger = setup_logger()
 
-        # Счётчики метрик
         self.total_sent     = 0
         self.total_success  = 0
         self.total_errors   = 0
@@ -66,40 +62,52 @@ class HotelOrchestrator:
 
     async def search_rooms(self, city: str, check_in: str, check_out: str,
                            guests: int, room_type: str = "", max_price: float = 0,
-                           timeout: int = 10) -> dict:
-        task_id = str(uuid.uuid4())
-        self.total_sent += 1
+                           timeout: int = 10, max_retries: int = 3) -> dict:
 
-        task = {
-            "task_id": task_id,
-            "city": city,
-            "check_in": check_in,
-            "check_out": check_out,
-            "guests": guests,
-            "room_type": room_type,
-            "max_price": max_price
-        }
+        last_error = None
 
-        future = asyncio.get_event_loop().create_future()
-        self.pending[task_id] = future
+        for attempt in range(1, max_retries + 1):
+            task_id = str(uuid.uuid4())
+            self.total_sent += 1
 
-        await self.nc.publish("hotel.search.request", json.dumps(task).encode())
-        self.logger.info(f"Задача отправлена {task_id}: поиск в {city} [{check_in} — {check_out}]")
+            task = {
+                "task_id": task_id,
+                "city": city,
+                "check_in": check_in,
+                "check_out": check_out,
+                "guests": guests,
+                "room_type": room_type,
+                "max_price": max_price
+            }
 
-        try:
-            result = await asyncio.wait_for(future, timeout=timeout)
-            if result.get("success"):
-                self.total_success += 1
-                self.logger.info(f"Задача {task_id} выполнена: найдено {result['count']} номеров")
-            else:
-                self.total_errors += 1
-                self.logger.error(f"Задача {task_id} вернула ошибку: {result.get('error')}")
-            return result
-        except asyncio.TimeoutError:
-            self.total_timeouts += 1
-            del self.pending[task_id]
-            self.logger.error(f"Задача {task_id} не выполнена за {timeout} сек (таймаут)")
-            raise TimeoutError(f"Агент не ответил за {timeout} сек")
+            future = asyncio.get_event_loop().create_future()
+            self.pending[task_id] = future
+
+            await self.nc.publish("hotel.search.request", json.dumps(task).encode())
+            self.logger.info(f"Попытка {attempt}/{max_retries} | задача {task_id}: поиск в {city}")
+
+            try:
+                result = await asyncio.wait_for(future, timeout=timeout)
+                if result.get("success"):
+                    self.total_success += 1
+                    self.logger.info(f"Задача {task_id} выполнена: найдено {result['count']} номеров")
+                else:
+                    self.total_errors += 1
+                    self.logger.error(f"Задача {task_id} вернула ошибку: {result.get('error')}")
+                return result
+
+            except asyncio.TimeoutError:
+                self.total_timeouts += 1
+                del self.pending[task_id]
+                last_error = TimeoutError(f"Агент не ответил за {timeout} сек (попытка {attempt})")
+                self.logger.error(str(last_error))
+
+                if attempt < max_retries:
+                    wait = attempt * 2
+                    self.logger.info(f"Повтор через {wait} сек...")
+                    await asyncio.sleep(wait)
+
+        raise last_error
 
 
 async def main():
@@ -135,14 +143,16 @@ async def main():
     except TimeoutError as e:
         print(f"Ошибка: {e}")
 
-    print("\n=== Сценарий 4: Таймаут ===")
+    print("\n=== Сценарий 4: Retry при таймауте ===")
     try:
         await orchestrator.search_rooms(
-            city="moscow", check_in="2025-09-01", check_out="2025-09-05", guests=1, timeout=2
+            city="moscow", check_in="2025-09-01", check_out="2025-09-05",
+            guests=1, timeout=2, max_retries=3
         )
     except TimeoutError as e:
-        print(f"  Таймаут сработал: {e}")
+        print(f"  Все попытки исчерпаны: {e}")
 
     await orchestrator.disconnect()
+
 
 asyncio.run(main())

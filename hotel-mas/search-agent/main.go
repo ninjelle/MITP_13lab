@@ -15,19 +15,11 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// ────────────────────────────────────────────────────────────
-// Топики NATS
-// ────────────────────────────────────────────────────────────
-
 const (
 	TopicSearchRequest = "hotel.search.request"
 	TopicSearchResult  = "hotel.search.result"
 	TopicSearchError   = "hotel.search.error"
 )
-
-// ────────────────────────────────────────────────────────────
-// Метрики и логгеры
-// ────────────────────────────────────────────────────────────
 
 var (
 	totalReceived atomic.Int64
@@ -44,15 +36,11 @@ func initLoggers() *os.File {
 	}
 
 	multiWriter := io.MultiWriter(os.Stdout, logFile)
-	infoLogger  = log.New(multiWriter, "INFO  ", log.Ldate|log.Ltime)
+	infoLogger = log.New(multiWriter, "INFO  ", log.Ldate|log.Ltime)
 	errorLogger = log.New(multiWriter, "ERROR ", log.Ldate|log.Ltime)
 
 	return logFile
 }
-
-// ────────────────────────────────────────────────────────────
-// Структуры входных данных
-// ────────────────────────────────────────────────────────────
 
 type SearchRequest struct {
 	TaskID   string  `json:"task_id"`
@@ -63,10 +51,6 @@ type SearchRequest struct {
 	RoomType string  `json:"room_type,omitempty"`
 	MaxPrice float64 `json:"max_price,omitempty"`
 }
-
-// ────────────────────────────────────────────────────────────
-// Структуры выходных данных
-// ────────────────────────────────────────────────────────────
 
 type RoomOffer struct {
 	RoomID        string  `json:"room_id"`
@@ -91,10 +75,6 @@ type ErrorResult struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error"`
 }
-
-// ────────────────────────────────────────────────────────────
-// In-memory база данных
-// ────────────────────────────────────────────────────────────
 
 type Room struct {
 	RoomID        string
@@ -148,10 +128,6 @@ var roomDatabase = []Room{
 		Bookings: []Booking{},
 	},
 }
-
-// ────────────────────────────────────────────────────────────
-// Бизнес-логика
-// ────────────────────────────────────────────────────────────
 
 func validateRequest(req SearchRequest) error {
 	if req.City == "" {
@@ -221,34 +197,29 @@ func searchRooms(req SearchRequest) ([]RoomOffer, error) {
 	return results, nil
 }
 
-// ────────────────────────────────────────────────────────────
-// NATS обработчик
-// ────────────────────────────────────────────────────────────
-
 func publishError(nc *nats.Conn, taskID, errMsg string) {
 	data, _ := json.Marshal(ErrorResult{TaskID: taskID, Success: false, Error: errMsg})
 	nc.Publish(TopicSearchError, data)
 }
 
-func handleSearchRequest(nc *nats.Conn, msg *nats.Msg) {
+func handleSearchRequest(nc *nats.Conn, agentName string, msg *nats.Msg) {
 	totalReceived.Add(1)
-	infoLogger.Printf("[SearchAgent] Получен запрос #%d", totalReceived.Load())
+	infoLogger.Printf("[%s] Получен запрос #%d", agentName, totalReceived.Load())
 
 	var req SearchRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		totalErrors.Add(1)
-		errorLogger.Printf("[SearchAgent] Ошибка парсинга JSON: %v | ошибок всего: %d", err, totalErrors.Load())
+		errorLogger.Printf("[%s] Ошибка парсинга JSON: %v | ошибок всего: %d", agentName, err, totalErrors.Load())
 		publishError(nc, "", "неверный формат JSON: "+err.Error())
 		return
 	}
 
-	infoLogger.Printf("[SearchAgent] Задача %s: город=%s, заезд=%s, выезд=%s, гостей=%d",
-		req.TaskID, req.City, req.CheckIn, req.CheckOut, req.Guests)
+	infoLogger.Printf("[%s] Задача %s: город=%s, заезд=%s, выезд=%s, гостей=%d",
+		agentName, req.TaskID, req.City, req.CheckIn, req.CheckOut, req.Guests)
 
 	if err := validateRequest(req); err != nil {
 		totalErrors.Add(1)
-		errorLogger.Printf("[SearchAgent] Валидация не прошла для задачи %s: %v | ошибок всего: %d",
-			req.TaskID, err, totalErrors.Load())
+		errorLogger.Printf("[%s] Валидация не прошла для задачи %s: %v", agentName, req.TaskID, err)
 		publishError(nc, req.TaskID, err.Error())
 		return
 	}
@@ -256,14 +227,14 @@ func handleSearchRequest(nc *nats.Conn, msg *nats.Msg) {
 	rooms, err := searchRooms(req)
 	if err != nil {
 		totalErrors.Add(1)
-		errorLogger.Printf("[SearchAgent] Ошибка поиска для задачи %s: %v", req.TaskID, err)
+		errorLogger.Printf("[%s] Ошибка поиска для задачи %s: %v", agentName, req.TaskID, err)
 		publishError(nc, req.TaskID, err.Error())
 		return
 	}
 
 	totalSuccess.Add(1)
-	infoLogger.Printf("[SearchAgent] Задача %s выполнена: найдено %d номеров | успешных: %d, ошибок: %d",
-		req.TaskID, len(rooms), totalSuccess.Load(), totalErrors.Load())
+	infoLogger.Printf("[%s] Задача %s выполнена: найдено %d номеров | успешных: %d, ошибок: %d",
+		agentName, req.TaskID, len(rooms), totalSuccess.Load(), totalErrors.Load())
 
 	result := SearchResult{
 		TaskID:     req.TaskID,
@@ -276,10 +247,6 @@ func handleSearchRequest(nc *nats.Conn, msg *nats.Msg) {
 	nc.Publish(TopicSearchResult, data)
 }
 
-// ────────────────────────────────────────────────────────────
-// main
-// ────────────────────────────────────────────────────────────
-
 func main() {
 	logFile := initLoggers()
 	defer logFile.Close()
@@ -289,34 +256,39 @@ func main() {
 		natsURL = nats.DefaultURL
 	}
 
-	infoLogger.Printf("[SearchAgent] Подключение к NATS: %s", natsURL)
+	agentName := os.Getenv("AGENT_NAME")
+	if agentName == "" {
+		agentName = "agent-1"
+	}
+
+	infoLogger.Printf("[%s] Подключение к NATS: %s", agentName, natsURL)
 
 	nc, err := nats.Connect(natsURL,
-		nats.Name("hotel-search-agent"),
+		nats.Name(agentName),
 		nats.MaxReconnects(5),
 		nats.ReconnectWait(2*time.Second),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-			errorLogger.Printf("[SearchAgent] Отключён от NATS: %v", err)
+			errorLogger.Printf("[%s] Отключён от NATS: %v", agentName, err)
 		}),
 		nats.ReconnectHandler(func(_ *nats.Conn) {
-			infoLogger.Println("[SearchAgent] Переподключён к NATS")
+			infoLogger.Printf("[%s] Переподключён к NATS", agentName)
 		}),
 	)
 	if err != nil {
-		errorLogger.Fatalf("[SearchAgent] Ошибка подключения: %v", err)
+		errorLogger.Fatalf("[%s] Ошибка подключения: %v", agentName, err)
 	}
 	defer nc.Close()
 
-	nc.Subscribe(TopicSearchRequest, func(msg *nats.Msg) {
-		handleSearchRequest(nc, msg)
+	nc.QueueSubscribe(TopicSearchRequest, "search-agents", func(msg *nats.Msg) {
+		handleSearchRequest(nc, agentName, msg)
 	})
 
-	infoLogger.Printf("[SearchAgent] Запущен, слушает: %s", TopicSearchRequest)
+	infoLogger.Printf("[%s] Запущен, слушает: %s", agentName, TopicSearchRequest)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	infoLogger.Printf("[SearchAgent] Остановка. Итого: получено=%d, успешно=%d, ошибок=%d",
-		totalReceived.Load(), totalSuccess.Load(), totalErrors.Load())
+	infoLogger.Printf("[%s] Остановка. Итого: получено=%d, успешно=%d, ошибок=%d",
+		agentName, totalReceived.Load(), totalSuccess.Load(), totalErrors.Load())
 }

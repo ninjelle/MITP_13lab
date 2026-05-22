@@ -1,23 +1,42 @@
-version: "3.9"
-
 services:
 
-  # ── Брокер сообщений ──
   nats:
     image: nats:2.10-alpine
     container_name: hotel-nats
     ports:
-      - "4222:4222"   # клиентский порт
-      - "8222:8222"   # HTTP мониторинг
+      - "4222:4222"
+      - "8222:8222"
     command: ["--http_port", "8222"]
 
-  # ── SearchAgent ──
-  search-agent:
+  search-agent-1:
     build:
       context: ./search-agent
-    container_name: hotel-search-agent
+    container_name: hotel-search-agent-1
     environment:
       - NATS_URL=nats://nats:4222
+      - AGENT_NAME=agent-1
+    depends_on:
+      - nats
+    restart: on-failure
+
+  search-agent-2:
+    build:
+      context: ./search-agent
+    container_name: hotel-search-agent-2
+    environment:
+      - NATS_URL=nats://nats:4222
+      - AGENT_NAME=agent-2
+    depends_on:
+      - nats
+    restart: on-failure
+
+  search-agent-3:
+    build:
+      context: ./search-agent
+    container_name: hotel-search-agent-3
+    environment:
+      - NATS_URL=nats://nats:4222
+      - AGENT_NAME=agent-3
     depends_on:
       - nats
     restart: on-failure

@@ -114,43 +114,25 @@ async def main():
     orchestrator = HotelOrchestrator()
     await orchestrator.connect()
 
-    print("\n=== Сценарий 1: Поиск номеров в Москве ===")
-    try:
-        result = await orchestrator.search_rooms(
-            city="moscow", check_in="2025-09-01", check_out="2025-09-05", guests=2
-        )
-        for room in result['rooms']:
-            print(f"  {room['hotel_name']} | {room['room_type']} | {room['price_per_night']}₽/ночь | итого {room['total_price']}₽")
-    except TimeoutError as e:
-        print(f"Ошибка: {e}")
+    print("\n=== Балансировка: 9 запросов между 3 агентами ===")
+    tasks = [
+        {"city": "moscow",  "check_in": "2025-09-01", "check_out": "2025-09-05", "guests": 2},
+        {"city": "sochi",   "check_in": "2025-09-01", "check_out": "2025-09-03", "guests": 2},
+        {"city": "moscow",  "check_in": "2025-09-10", "check_out": "2025-09-15", "guests": 1},
+        {"city": "moscow",  "check_in": "2025-09-01", "check_out": "2025-09-03", "guests": 1, "max_price": 3000},
+        {"city": "sochi",   "check_in": "2025-10-01", "check_out": "2025-10-05", "guests": 4},
+        {"city": "moscow",  "check_in": "2025-09-20", "check_out": "2025-09-25", "guests": 2},
+        {"city": "moscow",  "check_in": "2025-11-01", "check_out": "2025-11-03", "guests": 1},
+        {"city": "sochi",   "check_in": "2025-09-05", "check_out": "2025-09-10", "guests": 2},
+        {"city": "moscow",  "check_in": "2025-12-01", "check_out": "2025-12-05", "guests": 3},
+    ]
 
-    print("\n=== Сценарий 2: Поиск с фильтром по цене ===")
-    try:
-        result = await orchestrator.search_rooms(
-            city="moscow", check_in="2025-09-01", check_out="2025-09-03", guests=1, max_price=3000
-        )
-        for room in result['rooms']:
-            print(f"  {room['hotel_name']} | {room['room_type']} | {room['price_per_night']}₽/ночь")
-    except TimeoutError as e:
-        print(f"Ошибка: {e}")
+    results = await asyncio.gather(*[
+        orchestrator.search_rooms(**task) for task in tasks
+    ])
 
-    print("\n=== Сценарий 3: Невалидный запрос ===")
-    try:
-        result = await orchestrator.search_rooms(
-            city="moscow", check_in="2025-09-10", check_out="2025-09-05", guests=1
-        )
-        print(f"  Ошибка от агента: {result.get('error')}")
-    except TimeoutError as e:
-        print(f"Ошибка: {e}")
-
-    print("\n=== Сценарий 4: Retry при таймауте ===")
-    try:
-        await orchestrator.search_rooms(
-            city="moscow", check_in="2025-09-01", check_out="2025-09-05",
-            guests=1, timeout=2, max_retries=3
-        )
-    except TimeoutError as e:
-        print(f"  Все попытки исчерпаны: {e}")
+    for i, result in enumerate(results, 1):
+        print(f"  Запрос {i}: найдено {result['count']} номеров")
 
     await orchestrator.disconnect()
 

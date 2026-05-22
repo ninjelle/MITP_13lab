@@ -1,6 +1,17 @@
 package main
 
-import "time"
+import (
+    "encoding/json"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "strings"
+    "syscall"
+    "time"
+
+    "github.com/nats-io/nats.go"
+)
 
 const (
     TopicSearchRequest = "hotel.search.request"
@@ -161,4 +172,72 @@ func searchRooms(req SearchRequest) ([]RoomOffer, error) {
         })
     }
     return results, nil
+}
+
+func publishError(nc *nats.Conn, taskID, errMsg string) {
+    data, _ := json.Marshal(ErrorResult{TaskID: taskID, Success: false, Error: errMsg})
+    nc.Publish(TopicSearchError, data)
+}
+
+func handleSearchRequest(nc *nats.Conn, msg *nats.Msg) {
+    log.Printf("[SearchAgent] Получено сообщение")
+
+    var req SearchRequest
+    if err := json.Unmarshal(msg.Data, &req); err != nil {
+        publishError(nc, "", "неверный формат JSON: "+err.Error())
+        return
+    }
+
+    log.Printf("[SearchAgent] Задача %s: город=%s, заезд=%s, выезд=%s",
+        req.TaskID, req.City, req.CheckIn, req.CheckOut)
+
+    if err := validateRequest(req); err != nil {
+        publishError(nc, req.TaskID, err.Error())
+        return
+    }
+
+    rooms, err := searchRooms(req)
+    if err != nil {
+        publishError(nc, req.TaskID, err.Error())
+        return
+    }
+
+    result := SearchResult{
+        TaskID:     req.TaskID,
+        Success:    true,
+        Rooms:      rooms,
+        Count:      len(rooms),
+        SearchedAt: time.Now().Format(time.RFC3339),
+    }
+    data, _ := json.Marshal(result)
+    nc.Publish(TopicSearchResult, data)
+    log.Printf("[SearchAgent] Задача %s выполнена, найдено: %d", req.TaskID, len(rooms))
+}
+
+func main() {
+    natsURL := os.Getenv("NATS_URL")
+    if natsURL == "" {
+        natsURL = nats.DefaultURL
+    }
+
+    nc, err := nats.Connect(natsURL,
+        nats.Name("hotel-search-agent"),
+        nats.MaxReconnects(5),
+        nats.ReconnectWait(2*time.Second),
+    )
+    if err != nil {
+        log.Fatalf("[SearchAgent] Ошибка подключения: %v", err)
+    }
+    defer nc.Close()
+
+    nc.Subscribe(TopicSearchRequest, func(msg *nats.Msg) {
+        handleSearchRequest(nc, msg)
+    })
+
+    log.Printf("[SearchAgent] Запущен, слушает: %s", TopicSearchRequest)
+
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit
+    log.Println("[SearchAgent] Остановка...")
 }

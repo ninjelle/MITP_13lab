@@ -1,0 +1,18 @@
+# Логи
+*.log
+
+# Бинарник Go
+search-agent/search-agent
+search-agent/search-agent.exe
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+
+# Docker
+.docker/
+
+hotel-mas/search-agent/search-agent.exe

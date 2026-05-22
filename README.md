@@ -8,25 +8,26 @@
 ## Содержание репозитория
 
 ```
-hotel-mas/
-├── search-agent/
-│   ├── main.go              # SearchAgent — агент поиска номеров (Go)
-│   ├── main_test.go         # Юнит-тесты агента (Go)
-│   ├── Dockerfile           # Образ для сборки агента
-│   ├── go.mod               # Go-модуль
-│   └── go.sum               # Хэши зависимостей
-├── orchestrator.py          # Оркестратор задач (Python, asyncio)
-├── api.py                   # REST API (FastAPI)
-├── test_orchestrator.py     # Тесты оркестратора (pytest + моки)
-├── test_api.py              # Тесты REST API (pytest)
-├── test.py                  # Ручное тестирование через NATS
-├── docker-compose.yml       # NATS + 3 экземпляра SearchAgent
-├── pytest.ini               # Настройки pytest
-├── requirements.txt         # Python-зависимости
-├── ARCHITECTURE.md          # Диаграммы и описание архитектуры
-├── PROMPT_LOG.md            # История промптов ИИ
-├── .gitignore
-└── README.md                # Этот файл
+МИТП_лр13/
+├── hotel-mas/
+│   ├── search-agent/
+│   │   ├── main.go              # SearchAgent — агент поиска номеров (Go)
+│   │   ├── main_test.go         # Юнит-тесты агента (Go)
+│   │   ├── Dockerfile           # Образ для сборки агента
+│   │   ├── go.mod               # Go-модуль
+│   │   └── go.sum               # Хэши зависимостей
+│   ├── orchestrator.py          # Оркестратор задач (Python, asyncio)
+│   ├── api.py                   # REST API (FastAPI)
+│   ├── test_orchestrator.py     # Тесты оркестратора (pytest + моки)
+│   ├── test_api.py              # Тесты REST API (pytest)
+│   ├── test.py                  # Ручное тестирование через NATS
+│   ├── docker-compose.yml       # NATS + 3 экземпляра SearchAgent
+│   ├── pytest.ini               # Настройки pytest
+│   └── requirements.txt         # Python-зависимости
+├── ARCHITECTURE.md              # Диаграммы и описание архитектуры
+├── PROMPT_LOG.md                # История промптов ИИ
+├── README.md                    # Этот файл
+└── .gitignore
 ```
 
 ## Предметная область: Бронирование гостиниц
